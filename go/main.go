@@ -130,12 +130,12 @@ func main() {
 
 	flag.Parse()
 
-	indexTemplate, err := template.ParseFiles("index.html.tmpl")
+	postTemplate, err := template.ParseFiles("index.html.tmpl", "post.html.tmpl")
 	if err != nil {
 		log.Fatal(err.Error())
 	}
 
-	postTemplate, err := template.ParseFiles("post.html.tmpl")
+	tocTemplate, err := template.ParseFiles("index.html.tmpl", "toc.html.tmpl")
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -177,7 +177,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = indexTemplate.Execute(indexFile, struct {
+	err = tocTemplate.Execute(indexFile, struct {
 		Title string
 		TOC   TOC
 	}{

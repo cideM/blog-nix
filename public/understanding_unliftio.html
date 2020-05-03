@@ -5,14 +5,18 @@
   <meta charset="utf-8">
 
   <title>Understanding unliftio</title>
-  <meta name="description" content="The HTML5 Herald">
-  <meta name="author" content="SitePoint">
+  <meta name="description" content="fbrs.io">
+  <meta name="author" content="Florian Beeres">
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <link rel="stylesheet" href="css/styles.css?v=1.0">
+  <link rel="stylesheet" href="styles.css">
 
 </head>
 
 <body>
+    
+<div>
     <p>In this post I will go over the source code for <a href="https://www.stackage.org/package/unliftio-core">unliftio-core</a>, more specifically the <code>MonadUnliftIO</code> typeclass, found in <code>Control.Monad.IO.Unlift</code>. The typeclass is used to power the actual <a href="https://www.stackage.org/package/unliftio">unliftio</a> library, which is the one you&rsquo;d use in your applications.</p>
 
 <p>Let&rsquo;s start with an example (borrowed from the official docs) showing what <code>unliftio</code> is good for.</p>
@@ -213,6 +217,8 @@ withCreateProcess c action =
 
 <li id="fn:3"><code>foo :: _; foo s = s ++ s</code> gives &ldquo;Found type wildcard ‘_’ standing for ‘[a] -&gt; [a]’&rdquo; which we can then use in the signature.</li>
 </ol>
+
+</div>
 
 </div>
 

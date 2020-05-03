@@ -1,4 +1,4 @@
-{ pkgs ? (import ./nixpkgs.nix ) }:
+{ pkgs ? (import ./nixpkgs.nix {}) }:
 
 let
   blog-go = pkgs.buildGoModule rec {
@@ -6,7 +6,7 @@ let
     version = "latest";
 
     # I needed to set this to a fake hash first and take whatever nix-build gave me
-    modSha256 = "0wd10n6hki138c4rh9w87c2sg91hzhlvxwxb9kxk1h951vi76adl";
+    modSha256 = "17fpi8dbm8kn39gyc5q0yndh7qsajfcp3g5xkk0rirydmwhafkhd";
 
     src = builtins.path { 
       name = "go-src-blog";
@@ -21,12 +21,16 @@ let
     buildInputs = [ blog-go ];
 
     buildPhase = ''
-      blog 2> foo
+      mkdir out
+      cd go
+      blog -contentdir=../content/ -outdir=../out
+      cd ../
     '';
 
     installPhase = ''
-      mkdir -p $out/files
-      cp foo $out/files
+      mkdir -p $out/public
+      cp out/* $out/public/
+      cp styles.css $out/public/
     '';
   };
 

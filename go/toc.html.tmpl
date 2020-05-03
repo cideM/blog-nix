@@ -1,0 +1,7 @@
+{{ define "main" }}
+<ul>
+    {{ range $path, $post := .TOC }}
+    <li><a href="{{ $path }}">{{ $post.FrontMatter.Title }}</a></li>
+    {{ end }}
+</ul>
+{{ end }}

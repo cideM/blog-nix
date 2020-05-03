@@ -5,14 +5,18 @@
   <meta charset="utf-8">
 
   <title>Exploring the Dhall configuration language</title>
-  <meta name="description" content="The HTML5 Herald">
-  <meta name="author" content="SitePoint">
+  <meta name="description" content="fbrs.io">
+  <meta name="author" content="Florian Beeres">
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <link rel="stylesheet" href="css/styles.css?v=1.0">
+  <link rel="stylesheet" href="styles.css">
 
 </head>
 
 <body>
+    
+<div>
     <p>Over the last weekend I looked into the <a href="https://dhall-lang.org/">Dhall configuration language</a>. I&rsquo;m a fan of pure, functional programming in general and the works of <a href="http://www.haskellforall.com/">Gabriel Gonzalez</a> specifically and so Dhall seemed like something I would like. I&rsquo;m also not super happy with the way we handle kubernetes configuration files at work through helm, so I&rsquo;m always looking for alternatives to that.</p>
 
 <p>In this post I&rsquo;ll write down my first impressions of the language, which I got from creating <a href="https://github.com/cideM/dhall-alacritty">type definitions and default values</a> for the <a href="https://github.com/alacritty/alacritty">alacritty terminal emulator</a>. In other words: I don&rsquo;t have a lot of experience with Dhall yet and haven&rsquo;t used it in a professional context. I&rsquo;m not going to go through all the language features here, since the website does that much better. Instead, I&rsquo;ll go over some things which stood out to me while exploring Dhall. After that I&rsquo;ll show you an example of how Dhall can make working with configs safer <strong>and simpler for the end user</strong> before I get to the closing thoughts. Please also not that this is not an exhaustive introduction to the language. I&rsquo;ll do my best to add context to all of the code snippets, but not all of them are beginner friendly if you&rsquo;ve never worked with a pure, functional language before.</p>
@@ -387,6 +391,8 @@ in  Prelude.List.map Binding BindingRendered renderBinding myBindings
 
 <li id="fn:2">At least that&rsquo;s one way of doing it. You could also change the type of <code>mods</code> to <code>Text</code> and just expect people to apply some <code>renderListOfModifiers</code> function to their <code>List Modifier</code> <strong>before</strong> creating the <code>Binding</code> record.</li>
 </ol>
+
+</div>
 
 </div>
 

@@ -5,14 +5,18 @@
   <meta charset="utf-8">
 
   <title>The Compose Newtype and its Applicative Instance</title>
-  <meta name="description" content="The HTML5 Herald">
-  <meta name="author" content="SitePoint">
+  <meta name="description" content="fbrs.io">
+  <meta name="author" content="Florian Beeres">
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <link rel="stylesheet" href="css/styles.css?v=1.0">
+  <link rel="stylesheet" href="styles.css">
 
 </head>
 
 <body>
+    
+<div>
     <p>When I went through <em>Haskell From First Principle</em> the first time, I struggled with the <code>Compose</code> applicative instance, which is part of an exercise in chapter 25. This post will give you a quick overview of the <code>Compose</code> data type and then explain how the applicative instance for that type works.</p>
 
 <p>The <code>Compose</code> data type is <a href="http://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor-Compose.html">part of base</a> and allows composing two functors:</p>
@@ -186,6 +190,8 @@ Just (Just 7)
 <ol>
 <li id="fn:1">Technically the minimal definition of applicative requires <code>pure</code> and either <code>&lt;*&gt;</code> or <code>liftA2</code></li>
 </ol>
+
+</div>
 
 </div>
 
