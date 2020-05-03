@@ -1,0 +1,394 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>Exploring the Dhall configuration language</title>
+  <meta name="description" content="The HTML5 Herald">
+  <meta name="author" content="SitePoint">
+
+  <link rel="stylesheet" href="css/styles.css?v=1.0">
+
+</head>
+
+<body>
+    <p>Over the last weekend I looked into the <a href="https://dhall-lang.org/">Dhall configuration language</a>. I&rsquo;m a fan of pure, functional programming in general and the works of <a href="http://www.haskellforall.com/">Gabriel Gonzalez</a> specifically and so Dhall seemed like something I would like. I&rsquo;m also not super happy with the way we handle kubernetes configuration files at work through helm, so I&rsquo;m always looking for alternatives to that.</p>
+
+<p>In this post I&rsquo;ll write down my first impressions of the language, which I got from creating <a href="https://github.com/cideM/dhall-alacritty">type definitions and default values</a> for the <a href="https://github.com/alacritty/alacritty">alacritty terminal emulator</a>. In other words: I don&rsquo;t have a lot of experience with Dhall yet and haven&rsquo;t used it in a professional context. I&rsquo;m not going to go through all the language features here, since the website does that much better. Instead, I&rsquo;ll go over some things which stood out to me while exploring Dhall. After that I&rsquo;ll show you an example of how Dhall can make working with configs safer <strong>and simpler for the end user</strong> before I get to the closing thoughts. Please also not that this is not an exhaustive introduction to the language. I&rsquo;ll do my best to add context to all of the code snippets, but not all of them are beginner friendly if you&rsquo;ve never worked with a pure, functional language before.</p>
+
+<p><em>All code snippets in this post use unicode symbols, so <code>forall ()</code> becomes <code>∀ ()</code>. This is <strong>not required</strong> and purely for aesthetical reasons. Additionally, unless noted otherwise, all examples &ndash; both inline and code blocks &ndash; are runnable and don&rsquo;t require any additional imports.</em></p>
+
+<h2>Documentation &amp; Getting Started</h2>
+
+<p>The first contact with a new language is usually the landing page and the languages&rsquo; documentation. In the case of Dhall both are excellent!<sup class="footnote-ref" id="fnref:1"><a href="#fn:1">1</a></sup> For a project so young it&rsquo;s impressive how much documentation exists and how <strong>beginner friendly</strong> it is in general. Especially considering that Dhall has a fair share of overlap with the Haskell community, which is not exactly known for soft documentation. The best resource to get started with Dhall is, in my opinion, the <a href="https://docs.dhall-lang.org/tutorials/Language-Tour.html">language tour</a>, followed by the other tutorials on the page. Additionally, the <a href="https://discourse.dhall-lang.org/">Discourse</a> forum is active and very helpful.</p>
+
+<p>Dhall makes it super easy to just play around with little snippets of code. You can copy &amp; paste this into your shell <code>echo '{ key = &quot;Value&quot; }' | dhall</code> to see what it outputs<sup class="footnote-ref" id="fnref:1"><a href="#fn:1">2</a></sup>. Run it with <code>dhall type</code> or <code>dhall --annotate</code> instead of just <code>dhall</code> to see more information about the expression. In general, exploring the different subcommands and flags of the <code>dhall</code> binary is time well invested. You can also navigate to any file in your project and play around with its contents like so <code>echo &quot;(./file.dhall).someExport&quot; | dhall</code>. And there&rsquo;s also a <code>dhall repl</code>! I love that kind of interactive development and it makes it super easy to get started with the language.</p>
+
+<h2>Union Types</h2>
+
+<p>Having union types for configuration is generally amazing. It&rsquo;s pretty common that a key only accepts a narrow range of values and union types let you represent those rules pretty much one to one in your code. The compiler will then verify the correctness of your configuration for you. That&rsquo;s much more relaxed than having to do these checks manually.<sup class="footnote-ref" id="fnref:3"><a href="#fn:3">3</a></sup> This saves you time and energy since you don&rsquo;t need to wait for your configuration to be deployed, and rejected, only to discover you made a typo somewhere.</p>
+
+<pre><code class="language-dhall">let Action = &lt; Copy | Paste &gt;
+
+let Config = { action : Action }
+
+-- Below doesn't compile since DangerousThing is not an allowed value!
+-- let myConfig : Config = { action = Action.DangerousThing }
+
+-- This is allowed!
+let myConfig : Config = { action = Action.Paste }
+
+in myConfig
+</code></pre>
+
+<p>What&rsquo;s slightly annoying about union types in Dhall is that there&rsquo;s no way of extending them, or making one union type the subtype of another. Consider the following:</p>
+
+<pre><code class="language-dhall">let Type1 = &lt; A | B | C &gt;
+let Type2 = &lt; A | B | C | D &gt;
+</code></pre>
+
+<p>It&rsquo;s clear that <code>Type1</code> is &ldquo;part of&rdquo; <code>Type2</code>, meaning I should be able to do <code>Type2.A</code> and use that in any function accepting a <code>Type1</code>. But that&rsquo;s not (yet) a thing in Dhall, even though there&rsquo;s <a href="https://github.com/dhall-lang/dhall-lang/issues/175">an issue for it</a>.</p>
+
+<p>There are various ways of dealing with this though. In an early version of <code>dhall-alacritty</code>, the base type would be imported into the more extensive types:</p>
+
+<pre><code class="language-dhall">let Base = &lt; A | B &gt;
+
+let Extended = &lt; Base : Base | C &gt;
+</code></pre>
+
+<p>This works but requires additional work if there are several variations of <code>Extended</code> but you want to implement some shared functionality in the module where <code>Base</code> lives, which has to work on these variations. Imagine a record, which can hold variations of <code>Extended</code>, but the record as a whole mostly consists of shared keys and functionality. The below snippet shows one way of handling this situation in Dhall through the use of polymorphism. The snippet is big but it&rsquo;s not actually that complicated! It really boils down to <strong>passing your extended union type and a function to handle that extension</strong> to the code implementing the shared functionality. In other words: the shared record and the functions operating on that record know almost everything about said record, except for one key and how to work with it. So you&rsquo;re supplying them with this last piece of information to make them whole.</p>
+
+<p>The output of the code below is <code>{ extraKey = &quot;C&quot;, sharedKey = &quot;5&quot;, sharedKey2 = &quot;10&quot; }</code> by the way.</p>
+
+<p><em>(Also if you&rsquo;re wondering what <code>merge</code> does, it&rsquo;s how you pattern match on union types, since there&rsquo;s no actual pattern matching in the style of Haskell)</em></p>
+
+<pre><code class="language-dhall">let Prelude = https://prelude.dhall-lang.org/package.dhall
+
+let Base = &lt; A | B &gt;
+
+let showBase = λ(b : Base) → merge { A = &quot;A&quot;, B = &quot;B&quot; } b
+
+let Extended = &lt; Base : Base | C &gt;
+
+let showExtended =
+      λ(e : Extended)
+      → merge { C = &quot;C&quot;, Base = λ(b : Base) → showBase b } e
+
+let Rec
+    : ∀(extraType : Type) → Type
+    =   λ(extraType : Type)
+      → { sharedKey : Natural
+        , sharedKey2 : Natural
+        , extraKey : extraType }
+
+let handleRec
+    :   ∀(extraType : Type)
+      → ∀(handleExtraType : extraType → Text)
+      → ∀(rec : Rec extraType)
+      → { sharedKey : Text, sharedKey2 : Text, extraKey : Text }
+    =   λ(extraType : Type)
+      → λ(handleExtraType : extraType → Text)
+      → λ(rec : Rec extraType)
+      → { sharedKey = Prelude.Natural.show rec.sharedKey
+        , sharedKey2 = Prelude.Natural.show rec.sharedKey2
+        , extraKey = handleExtraType rec.extraKey
+        }
+
+in  handleRec
+      Extended
+      showExtended
+      { sharedKey = 5, sharedKey2 = 10, extraKey = Extended.C }
+
+</code></pre>
+
+<p>It&rsquo;s actually quite amazing that you can do this in your configuration language. Doesn&rsquo;t mean you have to, of course, and I doubt that it will come up very often.</p>
+
+<h2>Polymorphism</h2>
+
+<p>The above paragraph brings me to my next point: polymorphism (hope I&rsquo;m using the word correctly) in Dhall is fairly straight forward. In a type signature, you can use the <code>forall</code> keyword (turned into a pretty unicode symbol by <code>dhall format</code>) to create a type variable and then refer to that variable (and type) in the rest of the signature. Like so (example taken straight from my toy project)</p>
+
+<p><em>Not a runnable example. I ellided the function body to focus only on the type signature</em></p>
+
+<pre><code class="language-dhall">let showBindings
+    :   ∀(action : Type)
+      → ∀(show : action → Text)
+      → List (KeybindingIn action)
+      → List Keybinding
+</code></pre>
+
+<p>Remember that part about extending union types from the paragraph above? That&rsquo;s exactly what&rsquo;s going on here. <code>KeybindingIn</code> is used in 3 different contexts and each context needs to first decide which <code>action</code> type to use with <code>KeybindingIn</code> and how that <code>action</code> type can be turned into a string. Armed with that knowledge <code>showBindings</code> can do all the heavy lifting.</p>
+
+<p>This is quite powerful but can also impair readability of course. I dare say that most programmers would probably run away sreaming if you told them that their <em>configuration language</em> requires them to understand snippets like the one above. Especially when their day job is something like Javascript or Go (disclaimer: that&rsquo;s my day job). In reality you probably won&rsquo;t need polymorphism in most cases. In the case of the union type you could just copy &amp; paste the common constructors. It&rsquo;s a bit of a maintenance burden, but I&rsquo;d rather do that and gain some type safety, than throw out the Dhall baby with the polymorphism bath water. Just because powerful features exist, doesn&rsquo;t mean you need to use them.</p>
+
+<h2>Records</h2>
+
+<p>There are several helper functions and operators, which make working with records really enjoyable and straightforward in Dhall (that&rsquo;s quite the feat and the same can&rsquo;t be said about records in Haskell). You can shallow merge two records with the <code>//</code> operator. As the word shallow implies, this will completely override nested records:</p>
+
+<pre><code class="language-dhall">{ a = { b = 1, c = 2 } } ⫽ { a.b = 1 }
+</code></pre>
+
+<p>Returns <code>{ a.b = 1 }</code>, thereby losing the <code>c = 2</code> part. In practice this is less of a danger than it seems, since you&rsquo;d probably have a type signature making sure that <code>c</code> is always present. There&rsquo;s also a recursive merge operator, <code>/\</code> but it does not allow for collisions. You can merge but you can&rsquo;t override. So how do you override something that&rsquo;s nested a few levels deep?</p>
+
+<pre><code class="language-dhall">{ a = { b = 1, c = 2 } } with a.c = 3
+</code></pre>
+
+<p><strong>I can&rsquo;t overstate how amazing this is</strong>. You&rsquo;d think that a statically typed, pure functional language would be more tedious at working with records than a dynamic language. Also note the use of the <strong>dot operator</strong> here, which is easy to read and write and makes working with nested records much more ergonomic.</p>
+
+<p>Records can also have schemas, which is just a record with two keys, one for <code>Type</code> and one for <code>default</code>.</p>
+
+<pre><code class="language-dhall">let rec = { Type = { b : Natural, c : Natural }, default = { b = 0, c = 0 } }
+
+in  rec::{=}
+</code></pre>
+
+<p>The <code>::{=}</code> creates the record with its default values and <code>::{ c = 5}</code> let&rsquo;s you shallow override the defaults. It&rsquo;s nice syntax sugar for creating a record with default values although you can achieve the same thing with the existing operators. I&rsquo;m a fan of orthogonal features and so I&rsquo;m not a big fan of this one (even though I&rsquo;ve used it extensively in my own little toy project). Also this only works for records. <code>{ Type = Optional Natural, default = None }</code> does not compile. This means you&rsquo;ll likely end up mixing defaults with syntax sugar and defaults without anyway.</p>
+
+<p>There&rsquo;s also a feature called <a href="https://docs.dhall-lang.org/tutorials/Language-Tour.html#records">projections</a>. It&rsquo;s a bit like destructuring in languages like JS or Clojure.</p>
+
+<pre><code class="language-dhall">let record = { a = 1, b = 2}
+
+in record.{a}
+</code></pre>
+
+<p>In the first version of this post I complained about not understanding when and how to use this, but the <a href="https://discourse.dhall-lang.org/">Discourse</a> community helped me with that. Still, I don&rsquo;t find this feature as useful as it could be, since it&rsquo;s a bit limited where you can actually use this. Or in other words, I think I was expecting this to be the equivalent of destructuring in JS and Clojure, which it&rsquo;s not:</p>
+
+<p><em>Does not compile since that&rsquo;s not how you use projections</em></p>
+
+<pre><code class="language-dhall">let record = { a = 1, b = 2}
+
+in \(rec.{a} : Record) -&gt; a
+</code></pre>
+
+<p>Dhall doesn&rsquo;t currently have actual destructuring for things like function arguments. Check out some of the discussions for such a feature at <a href="https://github.com/dhall-lang/dhall-lang/issues/74">GitHub</a>.</p>
+
+<p>Also note that if you need to generate a record dynamically you can <a href="https://docs.dhall-lang.org/tutorials/Getting-started_Generate-JSON-or-YAML.html#dynamic-records">actually do so</a> without having to jump through any hoops, which is pretty neat. The reason I&rsquo;m not emphasizing this more is that it didn&rsquo;t really come up when I was working with Dhall for <code>dhall-alacritty</code>, but it is something many people will want. It&rsquo;s this <strong>attention to real world use cases</strong> that really makes Dhall shine.</p>
+
+<h2>Ergonomics &amp; Tooling</h2>
+
+<p>I&rsquo;m using <code>neovim</code> and the dhall language server kinda sorta works some of the time. It doesn&rsquo;t have a lot of features, so it&rsquo;s mostly about error checking and completion. In Visual Studio Code the experience is a bit better, but the features remain the same. The <code>dhall</code> binary and its subcommands is how I explore my code and ask the compiler questions about it. To me things like <code>dhall --annotate</code> or <code>dhall type</code> kind of achieve the same thing as typed holes in Haskell.</p>
+
+<p>I&rsquo;ve already mentioned a couple of ways for interactively working with Dhall code throughout this post (<code>echo '{}' | dhall</code>, <code>dhall --file ./file.dhall</code>), but there&rsquo;s also <code>dhall repl</code> which should probably be your first choice for playing around with Dhall. It has a <code>:help</code> command so there&rsquo;s no need for me to go through its commands.</p>
+
+<p>One thing I find a bit strange is that currently <code>dhall format</code> removes comments. There&rsquo;s an <a href="https://github.com/dhall-lang/dhall-haskell/issues/145">issue for that too</a> with some workarounds but it&rsquo;s really annoying. Imagine introducing Dhall at work and then not easily being able to leave helpful comments for your colleagues who may be new not only to Dhall but also functional programming in general.</p>
+
+<p>Error messages in Dhall are generally really good but can be a bit hit and miss in certain cases. For smaller types (meaning here not too many keys, not too nested) they show you exactly what&rsquo;s wrong and are easy to interpret. In some cases they even includes helpful hints for common syntax mistakes, which reminded me a bit of Elm. For a project this young I&rsquo;d say errors are mostly a shining beacon of excellence. It&rsquo;s only when working with huge records that the errors become more and more cryptic, since the size of the diff (expected vs actual) to some degree mirrors the size of the record. Meaning your terminal will suddenly be filled with a wall of text and lots of <code>...</code> to hide some lines deemed irrelevant for the error. All in all errors are mostly really good though. For example, here&rsquo;s one of those errors that also displays some helpful hints:</p>
+
+<pre><code>r : { Type : Type, default : Optional Natural }
+
+Error: You can only override records
+
+Explanation: You can override records using the ❰⫽❱ operator, like this:
+
+
+    ┌───────────────────────────────────────────┐
+    │ { foo = 1, bar = &quot;ABC&quot; } ⫽ { baz = True } │
+    └───────────────────────────────────────────┘
+
+
+    ┌─────────────────────────────────────────────┐
+    │ λ(r : { foo : Bool }) → r ⫽ { bar = &quot;ABC&quot; } │
+    └─────────────────────────────────────────────┘
+
+
+... but you cannot override values that are not records.
+
+For example, the following expressions are not valid:
+
+
+    ┌──────────────────────────────┐
+    │ { foo = 1, bar = &quot;ABC&quot; } ⫽ 1 │
+    └──────────────────────────────┘
+                                 ⇧
+                                 Invalid: Not a record
+
+
+    ┌───────────────────────────────────────────┐
+    │ { foo = 1, bar = &quot;ABC&quot; } ⫽ { baz : Bool } │
+    └───────────────────────────────────────────┘
+                                 ⇧
+                                 Invalid: This is a record type and not a record
+
+
+    ┌───────────────────────────────────────────┐
+    │ { foo = 1, bar = &quot;ABC&quot; } ⫽ &lt; baz : Bool &gt; │
+    └───────────────────────────────────────────┘
+                                 ⇧
+                                 Invalid: This is a union type and not a record
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+You supplied this expression as one of the arguments:
+
+↳ None Natural
+
+... which is not a record, but is actually a:
+
+↳ Optional Natural
+
+────────────────────────────────────────────────────────────────────────────────
+
+1│                                                                r::{=}
+</code></pre>
+
+<h2>What Dhall Can Do For You</h2>
+
+<p>As promised, here&rsquo;s an example of how I used Dhall to model the rules for key mappings in alacritty. I&rsquo;d say that this is not beginner level Dhall code anymore, especially if you&rsquo;re not familiar with some of the functional programming concepts in use. But I hope that it still illustrates just how much you can achieve in terms of type safety without having to do mental gymnastics and importing various PhD theses, thanks to Dhall&rsquo;s focus on real world use cases.</p>
+
+<p>The alacritty configuration file let&rsquo;s you map keys to actions. This is fairly involved so I&rsquo;ll use a slightly simplified model so the code snippets don&rsquo;t blow up in size. Here&rsquo;s a mapping that binds the &ldquo;A&rdquo; key, when &ldquo;Alt&rdquo; is held down as well, to the &ldquo;Copy&rdquo; action.</p>
+
+<pre><code class="language-yaml">key_bindings:
+  - key: A
+    mods: Alt
+    action: Copy
+</code></pre>
+
+<p>Modifiers and actions aren&rsquo;t just random strings though. There&rsquo;s a list of possible values for both, so let&rsquo;s model those rules in Dhall:</p>
+
+<pre><code class="language-dhall">let Modifier = &lt; Alt | Control | Command &gt;
+
+let Action = &lt; Copy | Paste &gt;
+
+let Binding = { mods : Optional Modifier, key : Text, action : Action }
+
+let myBindings : List Binding =
+        [ { mods = Some Modifier.Alt, key = &quot;A&quot;, action = Action.Copy } ]
+
+in  myBindings
+</code></pre>
+
+<p>Executing this file with <code>dhall-to-yaml --file ./file.dhall</code> gives me exactly the keybinding from above (without the actual <code>key_bindings</code> key). Yay for more type safety! It also improves the developer experience since you now get reliable autocompletion for allowed values! There&rsquo;s just one issue: this code doesn&rsquo;t support multiple modifiers. It should be possible to eventually render a <code>.yml</code> file with an entry like this:</p>
+
+<pre><code class="language-yaml">key_bindings:
+  - key: A
+    mods: Alt|Shift
+    action: Copy
+</code></pre>
+
+<p>The <code>mods</code> key will now have to hold a list of modifiers and then we&rsquo;ll also need to create a function that turns <code>List Modifier</code> into <code>Text</code> by joining the modifiers with a <code>|</code>.<sup class="footnote-ref" id="fnref:2"><a href="#fn:2">4</a></sup></p>
+
+<pre><code class="language-dhall">let Prelude = https://prelude.dhall-lang.org/package.dhall
+
+let Modifier =
+    -- List the possible modifiers we have
+    &lt; Alt | Control | Command &gt;
+
+let renderModifier
+    : Modifier → Text
+    =
+      -- Write a function that converts a single modifier to its text representation
+      λ(m : Modifier)
+      → merge { Alt = &quot;Alt&quot;, Control = &quot;Control&quot;, Command = &quot;Command&quot; } m
+
+let convertModifiers
+    : List Modifier → Text
+    =
+      -- Convert a list of modifiers to a string where the modifiers
+      -- are joined with a pipe
+      λ(m : List Modifier)
+      → let mapped = Prelude.List.map Modifier Text renderModifier m
+
+        let joined = Prelude.Text.concatSep &quot;|&quot; a
+
+        in  joined
+
+let Action = &lt; Copy | Paste &gt;
+
+let Binding =
+  -- Binding now let's you specify multiple modifiers for a given keybinding
+  { mods : Optional (List Modifier), key : Text, action : Action }
+
+let BindingRendered
+    : Type
+    = { mods : Optional Text, key : Text, action : Action }
+
+let renderBinding
+    : Binding → BindingRendered
+    =
+      -- Use the various functions from above to convert just a
+      -- single key in Binding and then use that converted key
+      -- and value to create the rendered version of Binding
+      λ(b : Binding)
+      → let mods =
+              Prelude.Optional.map (List Modifier) Text convertModifiers b.mods
+
+        in  { mods } // b.{action,key}
+
+let myBindings
+    : List Binding
+    = [ { mods = Some [ Modifier.Alt, Modifier.Control ]
+        , key = &quot;A&quot;
+        , action = Action.Copy
+        }
+      ]
+
+in  Prelude.List.map Binding BindingRendered renderBinding myBindings
+</code></pre>
+
+<p>:scream:! Let&rsquo;s go through this (I also annoted the file with comments!). The definition of <code>Modifier</code> is the same, but I&rsquo;ve added a function for converting a value of that type to text (<code>renderModifier</code>). It uses the aforementioned <code>merge</code> function which let&rsquo;s you pattern match on different constructors of that union type. Here I&rsquo;m simply mapping each union type value to a string (<code>Text</code>) of the same name.</p>
+
+<p>The next function is a bit more involved, but the type signature is an excellent first thing to look at. <code>convertModifiers</code> takes a list of modifiers and outputs a single string. What it does is convert <strong>each modifier to a text then combine them all with | in between</strong>. I could also write this in a more compact manner:</p>
+
+<p><em>You can run this snippet by replacing <code>convertModifiers</code> in the snippet above</em></p>
+
+<pre><code class="language-dhall">let convertModifiers
+    : List Modifier → Text
+    = Prelude.Function.compose
+        (List Modifier)
+        (List Text)
+        Text
+        (Prelude.List.map Modifier Text renderModifier)
+        (Prelude.Text.concatSep &quot;|&quot;)
+</code></pre>
+
+<p>The version using <code>compose</code> simply emphasises the concept of composition a bit more: the list of modifiers flows through a pipeline of &ldquo;list of modifiers&rdquo; -&gt; &ldquo;list of texts&rdquo; -&gt; &ldquo;text&rdquo;, which is just a chain of two function calls. That chain can also be expressed as the composition of these two functions. I&rsquo;d always go with the more verbose and explicit version first, unless I&rsquo;m working in a team where I know everyone is comfortable with composition.</p>
+
+<p>Back to the bigger snippet. <code>Binding</code> now <strong>reflects the changed business logic</strong> through <code>List Modifier</code>, and I&rsquo;ve added a rendered version of binding. Notice how I need to repeat <code>key</code> and <code>action</code> though &ndash; there&rsquo;s no merge &amp; override type operator.</p>
+
+<p>Lastly I&rsquo;m putting all of this together with <code>renderBinding</code>. There&rsquo;s something really amazing going in there, which you may not know from other languages. Notice how inside <code>renderBinding</code> I&rsquo;m <strong>never checking if a value is Some or None</strong>, even though both <code>Binding</code> and <code>BindingRendered</code> contain optional types. All of this plumbing is taken care of by <code>Prelude.Optional.map</code>. If you&rsquo;re coming from Elm, Purescript or Haskell this will be familiar. If not, it&rsquo;s like syntax sugar for <code>if (isSome) then doThis else doThat</code>.</p>
+
+<p>So what&rsquo;s the output of the above snippets?</p>
+
+<pre><code>- action: Copy
+  key: A
+  mods: &quot;Alt|Control&quot;
+</code></pre>
+
+<p>Is it worth it? I think so. It&rsquo;s a lot of code but it&rsquo;s also a lot of safety. Everyone using that code to generate their mappings will benefit from the initial effort. To me code like this has a great multiplicative impact on others. Also some of the verbosity of Dhall comes from the fact that polymorphic functions require you to explicitly specify types. In Haskell you could simply do <code>map someFunc someOptional</code> and the compiler would infer the necessary types for you. In Dhall you need to explicitly state the input and output types of the <code>map</code> call.</p>
+
+<h2>Closing Thoughts</h2>
+
+<p>Would I use Dhall at work? Absolutely. As I mentioned, I&rsquo;m a fan of functional programming (FP). Unfortunately there&rsquo;s only a single developer I&rsquo;ve met in real life (outside of FP meetups) who&rsquo;s interested enough in FP so that she started learning Elm on her own. There are many reasons why people aren&rsquo;t as excited about FP as I&rsquo;d wish for, but one of them is simply that there are lots of alternatives. If you&rsquo;re doing just fine with JS, why look into something else? And that&rsquo;s precisely why I think Dhall has a lot of potential to introduce a bigger audience to FP: there aren&rsquo;t that many alternatives in this problem space.</p>
+
+<p>Our kubernetes and helm configuration at work comes down to a mix of <code>.yaml</code> files with Go templating directives in strings, held together by conventions. There&rsquo;s nothing which verifies the correctness of the logic in your templates. Stuff like <code>{{- with .Values.labels }}</code> and</p>
+
+<pre><code>{{- default .Chart.Name .Values.nameOverride |
+  replace &quot;.&quot; &quot;-&quot; |
+  lower |
+  trunc 63 |
+  trimSuffix &quot;-&quot; -}}
+</code></pre>
+
+<p>is a bug waiting to happen. It&rsquo;s also super exclusive. Imagine a junior developer trying to work with these files, without being able to verify that what they&rsquo;re doing makes any sense. Without understanding where <code>.Values</code> comes from, what&rsquo;s inside, what you can do with it. There&rsquo;s often no explicit connection between the variable in one file and its definition in another <em>(I say junior developer not to belittle them &ndash; I also often don&rsquo;t know exactly what values I&rsquo;m working with in these files)</em>.</p>
+
+<p>Dhall isn&rsquo;t the only contender in this area but in my opinion it&rsquo;s the one best equipped to solve these issues. Dhall let&rsquo;s you ramp up the type safety gradually, it gives you <em>some</em> programming features without letting you do whatever you want by limiting the language features it provides. You can improve the type safety <strong>and</strong> ergonomics of your configuration files with minimum effort and without any fancy types. You can also invest a lot of time and effort into making something critical as type safe as possible.</p>
+
+<p>Dhall has a great and unique vision of how to apply a subset of FP to configuration files and I think it has great potential. Also you can easily learn the basiscs in a couple of hours so I&rsquo;d encourage you to give it a try. The only thing you need to get started is the Dhall compiler and a terminal.</p>
+
+<div class="footnotes">
+
+<hr />
+
+<ol>
+<li id="fn:1">In <code>bash</code> you can also use a HERE string (<code>&lt;&lt;&lt;</code>) but I use <code>fish</code> so I&rsquo;m using <code>echo</code> and pipe.In <code>bash</code> you can also use a HERE string (<code>&lt;&lt;&lt;</code>) but I use <code>fish</code> so I&rsquo;m using <code>echo</code> and pipe.</li>
+
+<li id="fn:3">&gt; You are only human &ndash; Genji</li>
+
+<li id="fn:2">At least that&rsquo;s one way of doing it. You could also change the type of <code>mods</code> to <code>Text</code> and just expect people to apply some <code>renderListOfModifiers</code> function to their <code>List Modifier</code> <strong>before</strong> creating the <code>Binding</code> record.</li>
+</ol>
+
+</div>
+
+</body>
+</html>

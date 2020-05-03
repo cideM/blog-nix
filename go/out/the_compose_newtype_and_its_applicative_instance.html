@@ -1,0 +1,193 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>The Compose Newtype and its Applicative Instance</title>
+  <meta name="description" content="The HTML5 Herald">
+  <meta name="author" content="SitePoint">
+
+  <link rel="stylesheet" href="css/styles.css?v=1.0">
+
+</head>
+
+<body>
+    <p>When I went through <em>Haskell From First Principle</em> the first time, I struggled with the <code>Compose</code> applicative instance, which is part of an exercise in chapter 25. This post will give you a quick overview of the <code>Compose</code> data type and then explain how the applicative instance for that type works.</p>
+
+<p>The <code>Compose</code> data type is <a href="http://hackage.haskell.org/package/base-4.12.0.0/docs/Data-Functor-Compose.html">part of base</a> and allows composing two functors:</p>
+
+<pre><code class="language-haskell">&gt; :m Data.Functor.Compose
+&gt; let a = Right (Just 2)
+&gt; :t Compose a
+&gt; Compose a :: Num a =&gt; Compose (Either a2) Maybe a
+</code></pre>
+
+<p><em>Any code that starts with <code>&gt;</code> is meant to be run in a repl, such as <code>stack ghci</code> or <code>ghci</code>.</em></p>
+
+<p>Here we took two functors (a <code>Maybe</code> and an <code>Either</code>) and composed them, giving us a new functor! Why is that useful?</p>
+
+<pre><code class="language-haskell">&gt; :m Data.Functor.Compose
+&gt; let a = Right (Just 2)
+&gt; fmap ((+) 2) a
+• No instance for (Num (Maybe Int)) arising from a use of ‘+’
+</code></pre>
+
+<p>This does not work because <code>fmap</code> is trying to map <code>(+) 2</code> over our <code>Either</code>, which is equivalent to applying <code>(+) 2</code> to <code>Just 2</code> which doesn&rsquo;t work. However, with the help of <code>Compose</code> we can create a new functor from <code>Either</code> and <code>Maybe</code> which will work with <code>fmap</code>!</p>
+
+<pre><code class="language-haskell">&gt; :m Data.Functor.Compose
+&gt; let a = Right (Just 2)
+&gt; let b = Compose a
+&gt; fmap ((+) 2) b
+Compose (Right (Just 4))
+</code></pre>
+
+<h2>The Problem</h2>
+
+<p>In the book, you&rsquo;re tasked with writing the applicative instance for <code>Compose</code>, which requires at least two functions<sup class="footnote-ref" id="fnref:1"><a href="#fn:1">1</a></sup>: <code>pure</code> and <code>&lt;*&gt;</code>.</p>
+
+<pre><code class="language-haskell">pure :: a -&gt; fa a
+(&lt;*&gt;) :: fa (a -&gt; b) -&gt; fa a -&gt; fa b
+</code></pre>
+
+<p>I really struggled with the definition of <code>&lt;*&gt;</code>, so I turned to google to find some solutions that I could then reverse engineer. Here&rsquo;s one possible definition:</p>
+
+<pre><code class="language-haskell">instance (Applicative fa, Applicative fb) =&gt;
+  Applicative (Compose fa fb) where
+  (&lt;*&gt;) ::
+       Compose fa fb (a -&gt; b)
+    -&gt; Compose fa fb a
+    -&gt; Compose fa fb b
+  Compose x &lt;*&gt; Compose y =
+    Compose ((&lt;*&gt;) &lt;$&gt; x &lt;*&gt; y)
+</code></pre>
+
+<p><em>Functor types are named fa, fb, and so on. If you see an f, it&rsquo;s a function, both on the type and the data level. I refer to fa and fb as functors since the applicative type class requires those things to be functors.</em></p>
+
+<p>As is often the case with Haskell, the code is really concise. In a single line we&rsquo;re dealing with three operators and one of them is the very operator we&rsquo;re defining for <code>Compose</code> (<code>&lt;*&gt;</code>). While that kind of code is a joy to read and write if you&rsquo;re fluent in all things functor and applicative, it&rsquo;s a mouthful if you&rsquo;re trying to improve your understanding of these topics.</p>
+
+<p>So let&rsquo;s work through the implementation one step at a time!</p>
+
+<h2>Something Concrete</h2>
+
+<p>The code below shows a function <code>(+) 2</code> wrapped in a <code>Maybe</code>. We apply it to a value (wrapped in a <code>Maybe</code>) by using <code>&lt;*&gt;</code>. Simple enough.</p>
+
+<pre><code class="language-haskell">&gt; let a = Just ((+) 2)
+&gt; let b = Just 5
+&gt; a &lt;*&gt; b
+Just 7
+
+       Just ((+) 2)     Just 5    Just 7
+&lt;*&gt; :: fa   (a -&gt; b) -&gt; fa   a -&gt; fa   b
+</code></pre>
+
+<p>Let&rsquo;s up the ante a bit and wrap both the function and the value in another <code>Maybe</code>.</p>
+
+<pre><code class="language-haskell">&gt; let a = Just (Just ((+) 2))
+&gt; let b = Just (Just 5)
+&gt; a &lt;*&gt; b
+</code></pre>
+
+<p>This does not work since we can&rsquo;t just add another layer and expect the original <code>&lt;*&gt;</code> to work. After all, its type signature expects function and value to be inside a single functor, not nested in another.</p>
+
+<p>So what&rsquo;s the #1 solution for manipulating nested stuff in Haskell? <code>fmap</code> all the things!</p>
+
+<pre><code class="language-haskell">&gt; :m Control.Applicative
+&gt; let a = Just (Just ((+) 2))
+&gt; let b = Just (Just 5)
+&gt; fmap (&lt;*&gt;) a &lt;*&gt; b
+</code></pre>
+
+<p>We map <code>&lt;*&gt;</code> over <code>a</code>, meaning we partially apply <code>&lt;*&gt;</code> to the <code>Just ((+) 2)</code> inside <code>a</code>. We then take that partially applied function (which is still inside the functor <code>a</code>) and apply it to the <code>Just 5</code> in <code>b</code>. Please go ahead and open a repl now and play around with that code, it can do wonders for understanding stuff like that.</p>
+
+<h2>Something Abstract</h2>
+
+<p>But how does the <code>fmap</code> knowledge from the last paragraph help us make sense of the instance code?</p>
+
+<pre><code class="language-haskell">instance (Applicative fa, Applicative fb) =&gt;
+  Applicative (Compose fa fb) where
+  (&lt;*&gt;) ::
+       Compose fa fb (a -&gt; b)
+    -&gt; Compose fa fb a
+    -&gt; Compose fa fb b
+  Compose x &lt;*&gt; Compose y =
+    Compose ((&lt;*&gt;) &lt;$&gt; x &lt;*&gt; y)
+</code></pre>
+
+<p>The first part <code>(&lt;*&gt;) &lt;$&gt; x</code> written without infix notation and <code>fmap</code> instead of the operator is <code>fmap (&lt;*&gt;) x</code>. We map the function <code>&lt;*&gt;</code> over <code>x</code> and <code>x</code> has the type <code>fa fb (a -&gt; b)</code>. We therefore apply <code>&lt;*&gt;</code> to the <code>fb (a -&gt; b)</code> inside <code>x</code>. Check out the commented code below, which hopefully makes things clearer.</p>
+
+<pre><code class="language-haskell">instance (Applicative fa, Applicative fb) =&gt;
+  Applicative (Compose fa fb) where
+    (&lt;*&gt;) ::
+          Compose fa fb (a -&gt; b)
+                 --  ^^^^^^^^^^^
+                 -- This is the first argument to &lt;*&gt;
+       -&gt; Compose fa fb a
+       -&gt; Compose fa fb b
+    Compose x &lt;*&gt; Compose y =
+        -- fa' :: fa (fb a -&gt; fb b)
+        --            ^^^^ The 2nd argument to &lt;*&gt;
+        let fa' = fmap (&lt;*&gt;) x
+               -- ^^^^ mapping &lt;*&gt; over x means applying
+               -- &lt;*&gt; to the content of x
+        in ???
+</code></pre>
+
+<p>The <code>&lt;*&gt;</code> only needs its 2nd argument now, which is a functor with a value inside it. And we have something like that <strong>inside</strong> our <code>y</code> (<code>y</code> is <code>fa fb b</code> and therefore the missing argument to <code>&lt;*&gt;</code> is the <code>fb b</code> part inside the <code>fa</code>). How can we apply a function inside a functor to a value inside a functor? <code>&lt;*&gt;</code>! And that&rsquo;s how we arrive at the 2nd part:</p>
+
+<pre><code class="language-haskell">instance (Applicative fa, Applicative fb) =&gt;
+  Applicative (Compose fa fb) where
+    (&lt;*&gt;) ::
+          Compose fa fb (a -&gt; b)
+       -&gt; Compose fa fb a
+       -&gt; Compose fa fb b
+    Compose x &lt;*&gt; Compose y =
+        let fa' = fmap (&lt;*&gt;) x
+        in Compose $ fa' &lt;*&gt; y
+</code></pre>
+
+<p>This is not so different from how we used <code>&lt;*&gt;</code> in &ldquo;Something Concrete&rdquo;, just that both arguments have an additional level of nesting. Aligning the type signatures of <code>&lt;*&gt;</code> (top) and <code>Compose x &lt;*&gt; Compose y</code> (bottom) helps with visualising the similarities. It&rsquo;s the exact same operation one level deeper for both arguments.</p>
+
+<pre><code class="language-haskell">   fb (a -&gt; b) -&gt;    fb a -&gt;    fb b
+fa fb (a -&gt; b) -&gt; fa fb a -&gt; fa fb b
+</code></pre>
+
+<p>Quick recap:</p>
+
+<ul>
+<li><code>fmap (&lt;*&gt;) x</code>: Partially apply <code>&lt;*&gt;</code> the contents of <code>x</code>, which gives us a functor holding a partially applied function.</li>
+<li><code>fa' &lt;*&gt; y</code>: Fully apply the <code>&lt;*&gt;</code> inside <code>fa'</code> (!) to the contents of <code>y</code> through another use of <code>&lt;*&gt;</code>.</li>
+</ul>
+
+<h2>The hackage implementation</h2>
+
+<p>The implementation of the applicative instance using <code>&lt;*&gt;</code> and a mix of infix operators requires some mental gymnastics. On <a href="http://hackage.haskell.org/package/base-4.12.0.0/docs/src/Data.Functor.Compose.html#line-112">hackage</a> however the instance uses <code>liftA2</code>, which does a much better job of communicating the essence of what&rsquo;s going on. Here&rsquo;s an example of how <code>liftA2</code> works, and where it&rsquo;s compared to our use of <code>liftA</code> from above.</p>
+
+<pre><code class="language-haskell">&gt; let a = Just (Just ((+) 2))
+&gt; let b = Just (Just 5)
+&gt; fmap (&lt;*&gt;) a &lt;*&gt; b
+Just (Just 7)
+&gt; liftA (&lt;*&gt;) a &lt;*&gt; b
+Just (Just 7)
+&gt; liftA2 (&lt;*&gt;) a b
+Just (Just 7)
+</code></pre>
+
+<p>As you can see, <code>liftA2</code> leads to the same result but is a bit more concise and expressive in this case. We can use <code>liftA2</code> to conveniently apply <code>&lt;*&gt;</code> to the contents of the two functors in the two <code>Compose</code> types.</p>
+
+<h2>Edit</h2>
+
+<p>Thanks to <code>u/Syrak</code> from reddit for reminding me that <code>liftA</code> and <code>fmap</code> are pretty much the same. I edited the post so that <code>liftA</code> is only used at the very end. See also <a href="https://www.reddit.com/r/haskell/comments/b8067x/blog_post_the_compose_newtype_and_its_applicative/ejvt62y?utm_source=share&amp;utm_medium=web2x">his comment</a> for more insights!</p>
+
+<div class="footnotes">
+
+<hr />
+
+<ol>
+<li id="fn:1">Technically the minimal definition of applicative requires <code>pure</code> and either <code>&lt;*&gt;</code> or <code>liftA2</code></li>
+</ol>
+
+</div>
+
+</body>
+</html>
