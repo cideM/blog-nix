@@ -1,0 +1,277 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>React Hooks are Tricky</title>
+  <meta name="description" content="fbrs.io">
+  <meta name="author" content="Florian Beeres">
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <link rel="stylesheet" href="styles.css">
+
+</head>
+
+<body>
+    
+<div>
+    <h1>React Hooks are Tricky </h1>
+    <p>When hooks were first introduced, many people thought that they looked a bit magical. Especially the rule that the order of hooks must not change across renders received a lot of pushback. On the other hand, getting rid of the divide between class based and functional components, and making sharing of functionality between components easier, seemed really appealing. That was especially true for me, since I saw them as an opportunity to stop using <code>recompose</code> for absolutely everything in our codebase at work.</p>
+
+<p>So I took one of our features and rewrote it using hooks. The goal was to see what using hooks feels like, what issues arise and what solutions are available, so that we&rsquo;re well prepared when we start using hooks throughout the entire codebase.</p>
+
+<p>This post is an experience report, not a review.</p>
+
+<h2>Creating a Timer</h2>
+
+<p>To me the trickiest part of hooks is the balancing act of making sure your callbacks don&rsquo;t reference stale data while at the same time minimizing rerenders. One example that highlights this issue is creating a timer that runs every second and increases a value. The twist is that the user can adjust the amount by which the value is increased, without this affecting the timer in any way. No slowdowns, no speedups. The code for this example can be found in <a href="https://repl.it/@cideM/timer">this repl.it</a>.</p>
+
+<h3>Basic Building Blocks</h3>
+
+<p>The components are all very simple. There&rsquo;s a component displaying the current value and another that renders the input field, through which you can adjust the amount by which the value increases.</p>
+
+<pre><code class="language-js">function SomeChild({ x }) {
+  return &lt;p&gt;Value: {x}&lt;/p&gt;
+}
+
+function Input({ onChange, id, type, text }) {
+  return (
+    &lt;input
+      type={type}
+      id={id}
+      value={text}
+      onChange={e =&gt; {
+        onChange(e.target.value)
+      }}
+    /&gt;
+  )
+}
+</code></pre>
+
+<p>The timer starts running as soon as the component mounts. Any changes to the input field become visible on the next tick of the timer. Regardless of user input, the timer keeps running on a second interval.</p>
+
+<p>While it looks super simple, implementing this functionality was surprisingly tricky. I&rsquo;ll demonstrate the different iterations this code went through, and how the intuitive solution turned out to be the wrong one.</p>
+
+<h3>Pit of Despair</h3>
+
+<p>Below is the first solution that I came up with. I store both text input and value with the <code>useState</code> hook. Additionally, I start a timer in <code>useEffect</code> and in the body of that function I increase the current value. The timer is cleared when the component unmounts, thanks to the cleanup function returned from <code>useEffect</code>. So far, so good. And this actually works! Sort of&hellip;</p>
+
+<p>You can copy &amp; paste the code into the repl to observe the issue. If you type anything into the input field just as <em>the next tick of <code>setInterval</code> is about to kick in</em>, that next tick is delayed. What gives?</p>
+
+<pre><code class="language-js">function App() {
+  const [input, setInput] = React.useState(`1`);
+  const [x, setX] = React.useState(0);
+
+  React.useEffect(() =&gt; {
+    const id = setInterval(() =&gt; {
+      setX(x + Number(input));
+    }, 1000);
+
+    return () =&gt; clearInterval(id);
+  });
+</code></pre>
+
+<p>To understand this quirky behavior you need to understand how <code>useEffect</code> works. It will always run on mount and unmount, much like <code>componentDidMount</code> and <code>componentWillUnmount</code> <sup class="footnote-ref" id="fnref:1"><a href="#fn:1">1</a></sup>. Additionally, it runs <strong>after every completed render, including the cleanup function</strong>. In the above example, the following happens:</p>
+
+<ol>
+<li>Component mounts, <code>useEffect</code> runs.</li>
+<li>User types into input field and state updates, triggering a render of <code>&lt;App /&gt;</code></li>
+<li><code>useEffect</code> runs. It first cleans up the previous interval, then starts a new interval.</li>
+</ol>
+
+<p>If the preceding interval is cleaned up just as it&rsquo;s about to tick, and a new interval is then started, the pause that the user sees is duration old interval + duration new interval. In other words, we&rsquo;re not using a single interval for the entire lifetime of the component &ndash; we&rsquo;re creating a new one on each render.</p>
+
+<p>So how do we fix this? Pass an array of values, that the effect depends on, as a second argument to <code>useEffect</code>. We want our interval to remain active for the entire lifetime of the component, therefore we pass an empty array to <code>useEffect</code>. Now it only runs on mount and unmount. Wohoo!</p>
+
+<pre><code class="language-js">    return () =&gt; clearInterval(id);
+    // eslint-disable-next-line
+  }, []);
+</code></pre>
+
+<p>Except that now everything is broken. The interval ticks along nicely, but the value stays at 1.</p>
+
+<p>The new issue is that the function passed to <code>setInterval</code> always refers to the initial state. So on each tick it increments 0 to 1 and that&rsquo;s it. You can imagine that on each render the state and props of a component are saved in a snapshot. On subsequent renders, rather than mutating the old snapshot, a new snapshot is created. React compares the virtual DOM that would result from old and new snapshot, and updates the real DOM accordingly.<sup class="footnote-ref" id="fnref:5"><a href="#fn:5">2</a></sup></p>
+
+<p>But that also means that <code>x</code> and <code>input</code> in the function passed to <code>setInterval</code> will always refer to the values from the very initial render, since <code>useEffect</code> is <strong>only run once, after the component rendered the first time</strong> (because of the empty array I added as a second argument).</p>
+
+<p>How can we solve this issue for good? Our requirements are:</p>
+
+<ul>
+<li>Start an interval that lives as long as the component</li>
+<li>Store the values in a way that we can always reference the most recent values</li>
+</ul>
+
+<p>The solution below is more or less a 1:1 copy from Dan Abramov&rsquo;s <a href="https://overreacted.io/making-setinterval-declarative-with-react-hooks/">overreacted blog</a>, where he happened to talk about almost precisely this issue. I just inlined the function rather than creating a custom hook from it.</p>
+
+<pre><code class="language-js">const savedCallback = React.useRef()
+
+React.useEffect(() =&gt; {
+  savedCallback.current = () =&gt; {
+    setTime(time + Number(input))
+  }
+})
+
+React.useEffect(() =&gt; {
+  let id = setInterval(() =&gt; {
+    savedCallback.current()
+  }, 1000)
+  return () =&gt; clearInterval(id)
+}, [])
+</code></pre>
+
+<p>The solution here is to store the function called in <code>setInterval</code> in a reference, with <code>useRef</code><sup class="footnote-ref" id="fnref:2"><a href="#fn:2">3</a></sup>. The interval is only created once, as can be seen from the empty dependency array. But instead of referring to a function from the first render of <code>&lt;App /&gt;</code>, we access (and call), the most recent version of that function through the reference. On each render, we simply update that stored function, by reassigning <code>savedCallback.current</code> to a new function using the most recent state. We&rsquo;re mutating the reference in place! Even though <code>useEffect</code> only runs once, it can access the updated (mutated) function through the reference.</p>
+
+<p>Fun fact, there&rsquo;s a <a href="https://twitter.com/dan_abramov/status/1099842565631819776?lang=en">tweet</a> by Dan Abramov where he states that:</p>
+
+<blockquote>
+<p>useRef() is basically useState({current: initialValue })[0]</p>
+</blockquote>
+
+<p>Meaning you can do this:</p>
+
+<pre><code class="language-js">const ref = useState({ current: 0 })[0]
+ref.current = 2
+console.log(ref.current) // 2
+</code></pre>
+
+<p>It&rsquo;s just JS after all. Nothing prevents you from mutating stuff willy nilly.</p>
+
+<h3>Pit of Success</h3>
+
+<p>What would the timer example look like with class based components?</p>
+
+<pre><code class="language-js">class App extends React.Component {
+  constructor() {
+    super()
+    this.state = {
+      input: `1`,
+      count: 0,
+    }
+
+    this.intervalId = null
+  }
+
+  increment = () =&gt; {
+    this.setState({
+      count: this.state.count + Number(this.state.input),
+    })
+  }
+
+  componentDidMount() {
+    this.intervalId = setInterval(this.increment, 1000)
+  }
+
+  componentWillUnmount() {
+    clearInterval(this.intervalId)
+  }
+
+  setInput = value =&gt; {
+    this.setState({
+      input: value,
+    })
+  }
+
+  render() {
+    return (
+      &lt;main className=&quot;App&quot;&gt;
+        &lt;Input
+          id=&quot;timer-input&quot;
+          type=&quot;text&quot;
+          text={this.state.input}
+          onChange={this.setInput}
+        /&gt;
+        &lt;label htmlFor=&quot;timer-input&quot;&gt;Enter a number:&lt;/label&gt;
+        &lt;SomeChild value={this.state.count} /&gt;
+      &lt;/main&gt;
+    )
+  }
+}
+</code></pre>
+
+<p>Writing this didn&rsquo;t require much thought. The key advantage of class based components is that methods are stable across renders and can set or refer to the most recent state without any additional work.</p>
+
+<h2>Same Function, Different State</h2>
+
+<p>The next problem I ran into is related to the first example, although in a slightly different way. I created another <a href="https://repl.it/@cideM/hooks">repl.it</a> to demonstrate the problem (it&rsquo;s a bit contrived, sorry). Imagine you have a parent that changes frequently. That parent passes a function down to one or more children. These children should <em>not re-render</em> as frequently as the parent. But the function passed to them needs to update the parent state based on the most recent parent state. In other words, our requirements are:</p>
+
+<ul>
+<li>A function whose identity remains the same and which passes shallow equality checks</li>
+<li>A function which can get and set the most recent state</li>
+</ul>
+
+<p>To demonstrate the problem I created a component that displays the current time. Note that I&rsquo;m using <code>React.memo</code>, which makes sure that the component only re-renders if its props have changed. Equality is checked with standard, shallow equality.</p>
+
+<pre><code class="language-js">const ClickChild = React.memo(({ onClick }) =&gt; {
+  return &lt;div onClick={onClick}&gt;click me. date: {Date.now()}&lt;/div&gt;
+})
+</code></pre>
+
+<p>The parent holds a counter, but it doesn&rsquo;t pass the current count down to the child.</p>
+
+<pre><code class="language-js">const [state, setState] = useState(0)
+const increment = useCallback(
+  () =&gt; {
+    setState(state + 1)
+  },
+  [state]
+)
+
+return (
+  &lt;div&gt;
+    &lt;ClickChild onClick={increment} /&gt;
+    state: {state}
+  &lt;/div&gt;
+)
+</code></pre>
+
+<p>The repl includes both a hooks and a class based version of this component. Click both versions and see that the class based one doesn&rsquo;t update the timestamp, meaning that the child doesn&rsquo;t re-render. In the hooks based version that is unfortunately the case.</p>
+
+<p>Here&rsquo;s the problem: I already wrapped the <code>increment</code> function in <code>useCallback</code>. But I need to make that <code>useCallback</code> hook depend on the current state. Meaning everytime you click the child, the state is updated and <code>useCallback</code> reruns. But that&rsquo;s precisely not what we want! Now a new function is passed to <code>ClickChild</code> and it re-renders, even though it&rsquo;s not <em>using the count at all</em>.</p>
+
+<p>There are two ways you can address this problem:</p>
+
+<ul>
+<li>Use the alternative function signature for the state updater function from <code>useState</code>: <code>setState(state =&gt; state + 1)</code>. Now we can pass an empty dependency array to <code>useCallback</code>. The major limitation here is that you can only use the state from a single <code>useState</code> call. If your function needs to use values from for example 5 different <code>useState</code> calls, this simply won&rsquo;t work. There&rsquo;s no <code>setState(state1, state2, state3 =&gt; ...)</code>.</li>
+<li>Use <code>useReducer</code> which is currently recommended for more complex cases <sup class="footnote-ref" id="fnref:3"><a href="#fn:3">4</a></sup></li>
+</ul>
+
+<p>The advantage of the <code>useReducer</code> hook is that the dispatch function never changes. It&rsquo;s essentially like the alternative <code>setState</code> function signature, except that you&rsquo;re putting all your state in a single reducer, instead of in a single <code>setState</code>.</p>
+
+<h2>Conclusion</h2>
+
+<p>I don&rsquo;t dislike hooks. I&rsquo;m also not as hyper-enthusiastic about them as I once was. None of what I said here should be seen as an inherent criticism of hooks, rather it&rsquo;s a reminder that hooks require you to think differently about how you solve problems. Switching from classes to hooks reminds me of switching from an imperative language to a pure functional one.</p>
+
+<p>I&rsquo;d suggest that anyone looking into using hooks productively should have a solid understanding of shallow equality in JS. Especially with the rise of functionalish programming accompanied by using rest and spread in many places.</p>
+
+<p>You should also understand how <code>useRef</code> works. Back in the day, refs were often avoided and their primary use appeared to be attaching them to DOM elements. But as the first part of this post shows, they can come in extremely handy with hooks.</p>
+
+<p>Considering that I&rsquo;ve already quoted Dan Abramov numerous times, it only makes sense to end this article with another quote from him:</p>
+
+<blockquote>
+<p>Disclaimer: this post focuses on a pathological case. Even if an API simplifies a hundred use cases, the discussion will always focus on the one that got harder.<sup class="footnote-ref" id="fnref:4"><a href="#fn:4">5</a></sup></p>
+</blockquote>
+
+<div class="footnotes">
+
+<hr />
+
+<ol>
+<li id="fn:1">Unlike the lifecycle methods, the function passed to <code>useEffect</code> runs <em>after</em> layout and paint. https://reactjs.org/docs/hooks-reference.html#timing-of-effects</li>
+
+<li id="fn:5">Dan Abramov, https://overreacted.io/a-complete-guide-to-useeffect/</li>
+
+<li id="fn:2">Alternatively you could also store input and value in references, but that would make things pretty unergonomical and would force all users of those values to reach them through <code>.current</code>.</li>
+
+<li id="fn:3">https://reactjs.org/docs/hooks-faq.html#what-can-i-do-if-my-effect-dependencies-change-too-often</li>
+
+<li id="fn:4">Dan Abramov, https://overreacted.io/making-setinterval-declarative-with-react-hooks/</li>
+</ol>
+
+</div>
+
+</div>
+
+</body>
+</html>
