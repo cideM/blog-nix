@@ -22,7 +22,7 @@ let
 
     buildPhase = ''
       mkdir out
-      blog -contentdir=./content/ -outdir=./out -templatedir=.
+      blog -contentdir=./content/ -outdir=./out -templatedir=./go_templates
     '';
 
     installPhase = ''
