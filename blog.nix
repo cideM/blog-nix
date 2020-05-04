@@ -26,9 +26,9 @@ let
     '';
 
     installPhase = ''
-      mkdir -p $out/public
-      cp out/* $out/public/
-      cp styles.css $out/public/
+      mkdir -p $out/docs
+      cp out/* $out/docs/
+      cp styles.css $out/docs/
     '';
   };
 
