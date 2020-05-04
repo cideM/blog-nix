@@ -11,6 +11,12 @@ html {
     color: hsla(0,0%,0%,0.8);
 }
 
+header {
+    height: 3rem;
+    display: flex;
+    align-items: center;
+}
+
 code {
     font-size: 1rem;
     background: #fff4ea;
@@ -73,7 +79,7 @@ a {
 
 .toc li {
     list-style-type: none;
-    margin: 3rem 0;
+    margin-bottom: 3rem;
 }
 
 .toc_date {
