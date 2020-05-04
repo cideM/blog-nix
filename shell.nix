@@ -1,6 +1,4 @@
 let
-  # moz_overlay = import (builtins.fetchTarball https://github.com/mozilla/nixpkgs-mozilla/archive/master.tar.gz);
-  # pkgs = import ./nixpkgs.nix { overlays = [ moz_overlay ]; };
   pkgs = import ./nixpkgs.nix {};
 
   mozillaOverlay = pkgs.fetchFromGitHub {
@@ -31,6 +29,6 @@ let
 in 
 pkgs.mkShell {
   buildInputs = [
-    pkgs.go pkgs.gotools pkgs.nix-prefetch-git miniserve
+    pkgs.go pkgs.gotools pkgs.nix-prefetch-git miniserve pkgs.entr
   ];
 }
