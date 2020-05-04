@@ -6,11 +6,11 @@ let
     version = "latest";
 
     # I needed to set this to a fake hash first and take whatever nix-build gave me
-    modSha256 = "17fpi8dbm8kn39gyc5q0yndh7qsajfcp3g5xkk0rirydmwhafkhd";
+    modSha256 = "14l74yjhwhzg1a3kkqjv95qgliqwmi3wqwcslrs435wlqnmlkgal";
 
     src = builtins.path { 
       name = "go-src-blog";
-      path = ./go;
+      path = ./.;
     };
   };
 
@@ -22,9 +22,7 @@ let
 
     buildPhase = ''
       mkdir out
-      cd go
-      blog -contentdir=../content/ -outdir=../out
-      cd ../
+      blog -contentdir=./content/ -outdir=./out -templatedir=.
     '';
 
     installPhase = ''
