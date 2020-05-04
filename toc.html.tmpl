@@ -1,7 +1,10 @@
 {{ define "main" }}
-<ul>
-    {{ range $path, $post := .TOC }}
-    <li><a href="{{ $path }}">{{ $post.FrontMatter.Title }}</a></li>
+<ul class="toc">
+    {{ range $_, $entry := .TOC }}
+    <li>
+        <a class="toc_link" href="{{ $entry.PathToEntry }}">{{ $entry.Entry.FrontMatter.Title }}</a>
+        <p class="toc_date">{{ $entry.Entry.DisplayDate }}</p>
+    </li>
     {{ end }}
 </ul>
 {{ end }}

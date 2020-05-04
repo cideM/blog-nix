@@ -6,7 +6,11 @@ import (
 	"io/ioutil"
 	"log"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
+
+	"github.com/pkg/errors"
 
 	"bufio"
 	"html/template"
@@ -26,9 +30,24 @@ type Frontmatter struct {
 type ParsedPost struct {
 	FrontMatter Frontmatter
 	Body        string
+	DisplayDate string
 }
 
-type TOC = map[string]ParsedPost
+type TOCEntry struct {
+	Date        time.Time
+	PathToEntry string
+	Entry       ParsedPost
+}
+
+type TOCByDateDesc []TOCEntry
+
+func (a TOCByDateDesc) Len() int           { return len(a) }
+func (a TOCByDateDesc) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a TOCByDateDesc) Less(i, j int) bool { return a[j].Date.Before(a[i].Date) }
+
+func parseDate(originalDate string) (time.Time, error) {
+	return time.Parse("2006-01-02", originalDate)
+}
 
 func parsePost(post io.Reader) (ParsedPost, error) {
 	var body strings.Builder
@@ -57,7 +76,14 @@ func parsePost(post io.Reader) (ParsedPost, error) {
 		log.Fatal(err)
 	}
 
-	parsedPost := ParsedPost{fm, body.String()}
+	parsedDate, err := parseDate(fm.Date)
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "couldn't parse date "+fm.Date))
+	}
+
+	formatted := parsedDate.Format("Jan 02, 2006")
+
+	parsedPost := ParsedPost{fm, body.String(), formatted}
 
 	return parsedPost, nil
 }
@@ -82,7 +108,7 @@ func findPosts(root string) ([]string, error) {
 		return nil
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(errors.WithMessage(err, "couldn't walk directory "+root))
 	}
 
 	return posts, nil
@@ -146,7 +172,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	toc := make(TOC)
+	toc := make(TOCByDateDesc, 0, len(posts))
 
 	for _, post := range posts {
 		file, err := os.Open(post)
@@ -170,7 +196,13 @@ func main() {
 			log.Fatal(err)
 		}
 
-		toc[relTarget] = parsedPost
+		tocDate, err := parseDate(parsedPost.FrontMatter.Date)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		tocEntry := TOCEntry{tocDate, relTarget, parsedPost}
+		toc = append(toc, tocEntry)
 	}
 
 	indexFile, err := os.Create(*outDir + "/" + "index.html")
@@ -178,9 +210,11 @@ func main() {
 		log.Fatal(err)
 	}
 
+	sort.Sort(TOCByDateDesc(toc))
+
 	err = tocTemplate.Execute(indexFile, struct {
 		Title string
-		TOC   TOC
+		TOC   TOCByDateDesc
 	}{
 		Title: "foo",
 		TOC:   toc,
