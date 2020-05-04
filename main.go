@@ -132,9 +132,11 @@ func renderPostToFile(post ParsedPost, outDir string, postTemplate *template.Tem
 	err := postTemplate.Execute(&rendered, struct {
 		Title string
 		Body  template.HTML
+                Date string
 	}{
 		Title: post.FrontMatter.Title,
 		Body:  template.HTML(md),
+                Date: post.DisplayDate,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -216,7 +218,7 @@ func main() {
 		Title string
 		TOC   TOCByDateDesc
 	}{
-		Title: "foo",
+		Title: "fbrs",
 		TOC:   toc,
 	})
 	if err != nil {

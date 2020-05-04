@@ -1,6 +1,7 @@
 {{ define "main" }}
 <div>
-    <h1>{{ .Title }} </h1>
+    <h1 class="post_title">{{ .Title }} </h1>
+    <p class="post_date">{{ .Date }}</p>
     {{ .Body }}
 </div>
 {{ end }}

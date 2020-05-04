@@ -77,4 +77,13 @@ a {
 }
 
 .toc_date {
+    margin-top: 0.35rem;
+}
+
+.post_title {
+    text-align: center;
+}
+
+.post_date {
+    text-align: center;
 }
