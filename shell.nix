@@ -27,6 +27,8 @@ let
     cargoSha256 = "07mmqklqpvwrgsv5bh4b8bwhy522x2dq7d71ljvqvxs7r7ji2lpn";
   };
 
+  netlify = (import ./netlify.nix { pkgs = pkgs; }).netlify-cli;
+
   watchexec = rustPlatform.buildRustPackage rec {
     pname = "watchexec";
     version = "1.12.0";
@@ -45,6 +47,6 @@ let
 in 
 pkgs.mkShell {
   buildInputs = [
-    pkgs.go pkgs.gotools pkgs.nix-prefetch-git miniserve watchexec
+    pkgs.go pkgs.gotools pkgs.nix-prefetch-git miniserve watchexec pkgs.nodePackages.node2nix netlify
   ];
 }
