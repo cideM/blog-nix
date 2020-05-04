@@ -127,15 +127,16 @@ func renderPostToFile(post ParsedPost, outDir string, postTemplate *template.Tem
 func main() {
 	contentFlag := flag.String("contentdir", "", "Path to directory with markdown content")
 	outDir := flag.String("outdir", "", "Path to directory where HTML should be saved")
+	templateDir := flag.String("templatedir", "", "Path to directory where templates are stored")
 
 	flag.Parse()
 
-	postTemplate, err := template.ParseFiles("index.html.tmpl", "post.html.tmpl")
+	postTemplate, err := template.ParseFiles(*templateDir+"/"+"index.html.tmpl", *templateDir+"/"+"post.html.tmpl")
 	if err != nil {
 		log.Fatal(err.Error())
 	}
 
-	tocTemplate, err := template.ParseFiles("index.html.tmpl", "toc.html.tmpl")
+	tocTemplate, err := template.ParseFiles(*templateDir+"/"+"index.html.tmpl", *templateDir+"/"+"toc.html.tmpl")
 	if err != nil {
 		log.Fatal(err.Error())
 	}
