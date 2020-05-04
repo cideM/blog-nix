@@ -26,9 +26,25 @@ let
 
     cargoSha256 = "07mmqklqpvwrgsv5bh4b8bwhy522x2dq7d71ljvqvxs7r7ji2lpn";
   };
+
+  watchexec = rustPlatform.buildRustPackage rec {
+    pname = "watchexec";
+    version = "1.12.0";
+
+    src = pkgs.fetchFromGitHub {
+      owner = "watchexec";
+      repo = pname;
+      rev = "f8f6c0ac5ab184e9153e8118635de758cbdae704";
+      sha256 = "010rdkd7qz1i62iinqivzf4jz4dypwymjklpxlgl378nyvr3q2m8";
+    };
+
+    buildInputs = [ pkgs.openssl pkgs.pkgconfig ];
+
+    cargoSha256 = "07whi9w51ddh8s7v06c3k6n5q9gfx74rdkhgfysi180y2rgnbanj";
+  };
 in 
 pkgs.mkShell {
   buildInputs = [
-    pkgs.go pkgs.gotools pkgs.nix-prefetch-git miniserve pkgs.entr
+    pkgs.go pkgs.gotools pkgs.nix-prefetch-git miniserve watchexec
   ];
 }

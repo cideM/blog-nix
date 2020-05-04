@@ -386,4 +386,4 @@ Dhall has a great and unique vision of how to apply a subset of FP to configurat
 
 [^1]: In `bash` you can also use a HERE string (`<<<`) but I use `fish` so I'm using `echo` and pipe.
 [^2]: At least that's one way of doing it. You could also change the type of `mods` to `Text` and just expect people to apply some `renderListOfModifiers` function to their `List Modifier` **before** creating the `Binding` record.
-[^3]: > You are only human -- Genji
+[^3]: You are only human -- Genji
