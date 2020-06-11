@@ -1,5 +1,7 @@
 # README
 
+_It goes without saying that this is just me playing around with Nix. The project is lacking structure and isn't meant as a posterchild example_
+
 This project is built with `nix`. The recommended setup for development is a combination of `direnv` and `lorri`. With this, there's nothing for you to do except open this directory and wait until `lorri` is done building everything in `nix-shell`.
 
 ## Scripts
